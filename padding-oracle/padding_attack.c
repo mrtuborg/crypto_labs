@@ -51,13 +51,16 @@ int main(int argc, char *argv[]) {
   printf("\n");
 
   Oracle_Connect();
-  int IV_index = 1;
+  int IV_index = 0;
   int not_padded_bytes_pos = 0;
 
   // STEP 1
   // Looking for padding length
   // Will change IV to find misformated PKCS#5 string
   //
+do    // Trying each cipher block as IV vector for the next block
+{
+  printf("\nConsider block #%d has padding\n", IV_index+1);
   for (i=0; i<block_size; i++)
   {
     cipher[IV_index][i]++; 
@@ -75,6 +78,10 @@ int main(int argc, char *argv[]) {
       }
     }
   }
+  if (not_padded_bytes_pos == 0) printf("\nBlock #%d has no PKCS#5 padding\n", IV_index+1);
+} while ((not_padded_bytes_pos == 0) && (++IV_index < (48/block_size - 1)));
+
+Oracle_Disconnect();
 
   int pad = block_size - not_padded_bytes_pos;
   printf("\nPadded size = %d\n", pad);
@@ -84,6 +91,8 @@ int main(int argc, char *argv[]) {
        if (i < not_padded_bytes_pos) printf ("XX ");
        else printf("%.2X ", pad);
   }
+
+printf("\n");
 
   //restore IV to correct initial value
   for (i = 0; i <= not_padded_bytes_pos; i++) cipher[IV_index][i] = cipher[IV_index][i]-1;
@@ -106,135 +115,53 @@ int main(int argc, char *argv[]) {
 //                                                                   = 0x0C ^ (DByte ^ IV[i]) 
 // 4) repeat for all pads 0x0D ... block_size 
 
+Oracle_Connect();
+IV_index++; // From now altering padding in C2 directly
+
 int new_pad=pad;
 while (new_pad < block_size)
 {
   new_pad++;
-
-  for (i = block_size; i > not_padded_bytes_pos; i++) 
+  printf("\n\nnew padding: ");
+  for (i = 0; i < block_size; i++)
   {
-    cipher[IV_index][i] ^= pad ^ new_pad;
+       if (i < block_size - new_pad) printf ("XX ");
+       else printf("%.2X ", new_pad);
   }
 
-  for (i = 0; i < 0xFF; i++)
+   
+  for (i = 0; i <= pad; i++) 
+  {
+    cipher[IV_index][block_size - i] ^= pad ^ new_pad;
+    // 9F  =  9E ^ 0x06 ^ 0x07
+  }
+
+  for (i = 0; i <= 0xFF; i++)
   {
     cipher[IV_index][block_size - new_pad] = i;
-    printf("\nnew padded size = %d", new_pad);
     printf("\nnew IV is: ");
     for (j=0; j<block_size; j++)
     {
-          printf("%.2X ", cipher[IV_index][i]);
+          printf("%.2X ", cipher[IV_index][j]);
     }
     ret = Oracle_Send((unsigned char*)cipher, 3);
+    printf(", ret = %d", ret);
     if (ret == 1) break;
   }
 
   if (ret == 0)
   {
-     printf("Padding oracle attack failed!\n");
+     printf("\nPadding oracle attack failed!\n");
      return -1;
   }
-
-  plain[0][block_size - new_pad] = new_pad ^ ( i ^ cipher[IV_index][block_size - new_pad]);
-  printf("\nplain0 is: ");
+  printf("\nplain[%d][%d] = 0x%.2X ^ (0x%.2X ^ 0x%.2X)\n",IV_index-1, block_size - new_pad, new_pad, i, cipher[IV_index-1][block_size - new_pad]);
+  plain[IV_index-1][block_size - new_pad] = new_pad ^ ( i ^ cipher[IV_index-1][block_size - new_pad]);
+  printf("\nplain #%d is: ", IV_index-1);
   for (j=0; j<block_size; j++)
   {
-          printf("%.2X ", plain[0][i]);
+          printf("%.2X ", plain[IV_index][j]);
   }
 }
-#if 0
-
-// CBC DECRYPTION SCHEME
-// INTERMEDIARY_BLOCK = DECRYPTED RECIEVED BLOCK WITH SYNCHRONOUS CRYPTOGRAPHIC KEY
-//
-// PLAINTEXT_1  =            IV  XOR  INTERMEDIARY_BLOCK_1
-// PLAINTEXT_2  =  CIPHER_BLOCK1 XOR  INTERMEDIARY_BLOCK_2
-// PLAINTEXT_3  =  CIPHER_BLOCK2 XOR  INTERMEDIARY_BLOCK_3
-
-//..... STEP 2
-// If [Intermediary Byte] ^ 0x3C == 0×0B,
-// then [Intermediary Byte] == 0x3C ^ 0×0B,
-// so [Intermediary Byte] == 0x37
-//.....
-for (block_count = 0; block_count < (48/block_size); block_count++) // block number
-for (i = block_size; i > not_padded_bytes_pos; i++)                 // byte of padding within block
-{
-  interm[block_count][i] = pad ^ cipher[block_count][i];
-}
-
-//..... STEP 3
-// Once you know the intermediary byte value, 
-// we can deduce what the actual decrypted value
-// is. Just XOR it with the previous cipher text.
-// Look at the CBC mode decryption figure.
-//.....
-
-  int new_pad=0;
-  for (new_pad=block_size-padded+1; new_pad<=block_size; new_pad++)
-  {
-    printf("\nSet new padding to %.2X:\n", new_pad);
-
-    for (i=block_size-1; i>=block_size-new_pad; i--)
-    {
-      //printf("%.2X: %.2X^%.2X^%.2X=",i,cipher[IV_index][i], (block_size - padded), new_pad);
-        cipher[IV_index][i]^= (block_size - padded)^(new_pad);
-      //  printf("%.2X\n",cipher[IV_index][i]);
-
-    }
-
-    printf("IV: ");
-    for (i=0; i<block_size; i++) printf("%.2X ", cipher[IV_index][i]);
-
-    printf("\nGuess the %d-th byte of IV with new padding:\n", block_size-new_pad+1);
-    for (i=0; i<=0xFF; i++)
-    {
-
-        k=-1;
-        cipher[IV_index][block_size-new_pad]=i;
-#if 0 
-        for (j=0; j< 48; j++)
-        {
-    
-            if (j%block_size == 0) printf("\nc%d: ",++k);
-            printf("%.2X ",((unsigned char*)cipher)[j]);
-        } 
-      printf("\n");
-#endif
-
-      //sleep(1);
-      ret = Oracle_Send((unsigned char*)cipher, 3);
-     //printf("ret=%d\n",ret);
-      if (ret == 1)
-      {
-        printf("ret=%d\n",ret);
-        cipher[IV_index][block_size-new_pad]= i ^ cipher[IV_index][block_size-new_pad];
-        break;
-      }
-    }
-
-    while (k<2)
-    for (j=0; j< 48; j++)
-    {
-    
-            if (j%block_size == 0) printf("\nc%d: ",++k);
-            printf("%.2X ",((unsigned char*)cipher)[j]);
-    } 
-      printf("\n");
-
-    if (ret == 0) break;
-    printf("plain_text:\n");
-    for (j=0; j<48/block_size-1; j++)
-    { 
-      printf("\nstring %d: ",j); 
-      for (i=0; i<block_size; i++) printf("%.2X ", plain[j][i]);
-    }
-
-
-      
-
-  }
-#endif
-
   printf("\n");
 
   Oracle_Disconnect();
