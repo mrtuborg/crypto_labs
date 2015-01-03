@@ -4,7 +4,13 @@
 #include <unistd.h>
 #include <ctype.h>
 #include <string.h>
+#include <signal.h> 
 
+void keybreak(int sig){ // can be called asynchronously
+  printf("\n");
+  Oracle_Disconnect();
+  exit(1);
+}
 // Read a ciphertext from a file, send it to the server, and get back a result.
 // If you run this using the challenge ciphertext (which was generated correctly),
 // you should get back a 1. If you modify bytes of the challenge ciphertext, you
@@ -22,7 +28,9 @@ int main(int argc, char *argv[]) {
   int i, tmp, ret;
   FILE *fpIn;
   int verbose = 0;
-  if (argc != 2) {
+ // Register signals 
+  signal(SIGINT, keybreak); 
+  if (argc < 2) {
     printf("Usage: %s <filename>\n",argv[0]);
     return -1;
   }
@@ -119,8 +127,11 @@ printf("\n");
 //                                                                   = 0x0C ^ (DByte ^ IV[i]) 
 // 4) repeat for all pads 0x0D ... block_size 
 
-Oracle_Connect();
+
+for (j = 0; j <= pad; j++)
+        plain[IV_index][block_size - j] = pad ^ ( cipher[IV_index][block_size - j] ^ cipher[IV_index-1][block_size - j]);
 IV_index++; // From now altering padding in C2 directly
+Oracle_Connect();
 
 int new_pad=pad;
 while (new_pad < block_size)
@@ -162,8 +173,7 @@ while (new_pad < block_size)
      printf("\nPadding oracle attack failed!\n");
      return -1;
   }
-  for (j = 0; j < new_pad; j++)
-  	plain[IV_index-1][block_size - j] = new_pad ^ ( i ^ cipher[IV_index-1][block_size - j]);
+  	plain[IV_index-1][block_size - new_pad] = new_pad ^ ( i ^ cipher[IV_index-1][block_size - new_pad]);
 
   printf("\ntext %d is: ", IV_index);
   for (j=0; j<block_size; j++)
@@ -175,7 +185,7 @@ while (new_pad < block_size)
   {
           if (isprint(plain[IV_index-1][j]))
 		printf("%c", plain[IV_index-1][j]);
-	  else  printf("*");
+	  else  printf(".");
   }
 }
   printf("\n");
