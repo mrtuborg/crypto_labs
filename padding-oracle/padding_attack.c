@@ -2,6 +2,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
+#include <ctype.h>
+#include <string.h>
 
 // Read a ciphertext from a file, send it to the server, and get back a result.
 // If you run this using the challenge ciphertext (which was generated correctly),
@@ -19,11 +21,13 @@ int main(int argc, char *argv[]) {
   unsigned char ctext[48]; // allocate space for 48 bytes, i.e., 3 blocks
   int i, tmp, ret;
   FILE *fpIn;
-
+  int verbose = 0;
   if (argc != 2) {
     printf("Usage: %s <filename>\n",argv[0]);
     return -1;
   }
+  
+  if ( argc>2 && (!strcmp(argv[2],"-v"))) verbose = 1;
 
   fpIn = fopen(argv[1], "r");
 
@@ -71,7 +75,7 @@ do    // Trying each cipher block as IV vector for the next block
         printf("All message padded?\n");
         break;
     } else {
-      printf("Changed %d-th element in IV, oracle returned: %d\n", i, ret);
+      if (verbose) printf("Changed %d-th element in IV, oracle returned: %d\n", i, ret);
       if (ret==0) {
           not_padded_bytes_pos = i;
           break;
@@ -122,7 +126,7 @@ int new_pad=pad;
 while (new_pad < block_size)
 {
   new_pad++;
-  printf("\n\nnew padding: ");
+  printf("\n\n  padding: ");
   for (i = 0; i < block_size; i++)
   {
        if (i < block_size - new_pad) printf ("XX ");
@@ -139,13 +143,17 @@ while (new_pad < block_size)
   for (i = 0; i <= 0xFF; i++)
   {
     cipher[IV_index][block_size - new_pad] = i;
-    printf("\nnew IV is: ");
-    for (j=0; j<block_size; j++)
+    if (verbose)
     {
+    	printf("\nnew IV is: ");
+    	for (j=0; j<block_size; j++)
+    	{
           printf("%.2X ", cipher[IV_index][j]);
+    	}
     }
+
     ret = Oracle_Send((unsigned char*)cipher, 3);
-    printf(", ret = %d", ret);
+    if (verbose) printf(", ret = %d", ret);
     if (ret == 1) break;
   }
 
@@ -154,12 +162,20 @@ while (new_pad < block_size)
      printf("\nPadding oracle attack failed!\n");
      return -1;
   }
-  printf("\nplain[%d][%d] = 0x%.2X ^ (0x%.2X ^ 0x%.2X)\n",IV_index-1, block_size - new_pad, new_pad, i, cipher[IV_index-1][block_size - new_pad]);
-  plain[IV_index-1][block_size - new_pad] = new_pad ^ ( i ^ cipher[IV_index-1][block_size - new_pad]);
-  printf("\nplain #%d is: ", IV_index-1);
+  for (j = 0; j < new_pad; j++)
+  	plain[IV_index-1][block_size - j] = new_pad ^ ( i ^ cipher[IV_index-1][block_size - j]);
+
+  printf("\ntext %d is: ", IV_index);
   for (j=0; j<block_size; j++)
   {
-          printf("%.2X ", plain[IV_index][j]);
+          printf("%.2X ", plain[IV_index-1][j]);
+  }
+
+  for (j=0; j<block_size; j++)
+  {
+          if (isprint(plain[IV_index-1][j]))
+		printf("%c", plain[IV_index-1][j]);
+	  else  printf("*");
   }
 }
   printf("\n");
