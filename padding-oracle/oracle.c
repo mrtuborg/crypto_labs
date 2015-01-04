@@ -47,6 +47,12 @@ int Oracle_Send(unsigned char* ctext, int num_blocks) {
   unsigned char message[(ctext_len)+2];
   char recvbit[2];
 
+#if 0
+  printf("\nSent to oracle: ");
+  for (int i=0; i < ctext_len; i++) printf ("%.2X ", ctext[i]);
+  printf("\n");
+#endif
+
   message[0] = num_blocks;
   memcpy((message+1), ctext, ctext_len);
   message[ctext_len+1] = '\0';
