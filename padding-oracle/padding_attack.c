@@ -18,13 +18,17 @@ void keybreak(int sig){ // can be called asynchronously
 
 // Note that this code assumes a 3-block ciphertext.
 
-  #define block_size (16)
-  unsigned char cipher[48/block_size][block_size] = {0};
-  unsigned char interm[48/block_size][block_size] = {0};
-  unsigned char  plain[48/block_size][block_size] = {0};
+  #define BLOCK_SIZE   (16)
+  #define CTEXT_LENGTH (48)
+  #define BLOCKS_COUNT (CTEXT_LENGTH/BLOCK_SIZE)
+
+  unsigned char _cipher[BLOCKS_COUNT][BLOCK_SIZE] = {0};
+  unsigned char cipher[BLOCKS_COUNT][BLOCK_SIZE] = {0};
+  unsigned char interm[BLOCKS_COUNT][BLOCK_SIZE] = {0};
+  unsigned char  plain[BLOCKS_COUNT][BLOCK_SIZE] = {0};
 
 int main(int argc, char *argv[]) {
-  unsigned char ctext[48]; // allocate space for 48 bytes, i.e., 3 blocks
+  unsigned char ctext[CTEXT_LENGTH]; // allocate space for 48 bytes, i.e., 3 blocks
   int i, tmp, ret;
   FILE *fpIn;
   int verbose = 0;
@@ -39,7 +43,7 @@ int main(int argc, char *argv[]) {
 
   fpIn = fopen(argv[1], "r");
 
-  for(i=0; i<48; i++) {
+  for(i=0; i<CTEXT_LENGTH; i++) {
     fscanf(fpIn, "%02x", &tmp);
     ctext[i] = tmp;
   }
@@ -49,16 +53,17 @@ int main(int argc, char *argv[]) {
   int j = -1;
   int k = -1;
 
-  for (i=0; i< 48; i++)
+  for (i=0, j=-1; i< CTEXT_LENGTH; i++)
   {
     
-    if (i%block_size == 0) 
+    if (i%BLOCK_SIZE == 0) 
     {
 	     printf("\nc%d: ",++j);
     }
 
-    cipher[j][i%block_size]=ctext[i];
-    printf("%.2X ",((unsigned char*)cipher)[i]);
+    _cipher[j][i%BLOCK_SIZE]=ctext[i];
+    cipher[j][i%BLOCK_SIZE]=ctext[i];
+    printf("%.2X ",((unsigned char*)_cipher)[i]);
   } 
   printf("\n");
 
@@ -72,42 +77,39 @@ int main(int argc, char *argv[]) {
   //
 do    // Trying each cipher block as IV vector for the next block
 {
-  printf("\nConsider block #%d has padding\n", IV_index+1);
-  for (i=0; i<block_size; i++)
+  printf("\nConsider block C%d has padding\n", IV_index+1);
+  for (i=0; i<BLOCK_SIZE; i++)
   {
-    cipher[IV_index][i]++; 
-    ret = Oracle_Send((unsigned char*)cipher, 3); // the first argument is an unsigned char array ctext;
+    cipher[IV_index][i] = _cipher[IV_index][i] + 1; 
+    ret = Oracle_Send((unsigned char*)cipher[IV_index], 2); // the first argument is an unsigned char array ctext;
                                  // the second argument indicates how many blocks ctext has
     if ((ret==0) && (i==0))
     {
         printf("All message padded?\n");
         break;
     } else {
-      if (verbose) printf("Changed %d-th element in IV, oracle returned: %d\n", i, ret);
+      if (verbose) printf("Changed %d-th element in C%d, oracle returned: %d\n", i, IV_index, ret);
       if (ret==0) {
           not_padded_bytes_pos = i;
           break;
       }
     }
   }
-  if (not_padded_bytes_pos == 0) printf("\nBlock #%d has no PKCS#5 padding\n", IV_index+1);
-} while ((not_padded_bytes_pos == 0) && (++IV_index < (48/block_size - 1)));
+  if (not_padded_bytes_pos == 0) printf("\nBlock C%d has no padding\n", IV_index+1);
+} while ((not_padded_bytes_pos == 0) && (++IV_index < (BLOCKS_COUNT - 1)));
 
 Oracle_Disconnect();
 
-  int pad = block_size - not_padded_bytes_pos;
-  printf("\nPadded size = %d\n", pad);
-  printf("The padding is: ");
-  for (i=0; i<block_size; i++)
-  {
-       if (i < not_padded_bytes_pos) printf ("XX ");
-       else printf("%.2X ", pad);
-  }
+int pad = BLOCK_SIZE - not_padded_bytes_pos;
+printf("\nBlock C%d has padding size = %d", IV_index+1, pad);
+printf("\n   padding: ");
+for (i=0; i<BLOCK_SIZE; i++)
+{
+     if (i < not_padded_bytes_pos) printf ("XX ");
+     else printf("%.2X ", pad);
+}
 
 printf("\n");
-
-  //restore IV to correct initial value
-  for (i = 0; i <= not_padded_bytes_pos; i++) cipher[IV_index][i] = cipher[IV_index][i]-1;
 
 // prof Katz explanation:
 // Observation:
@@ -127,67 +129,106 @@ printf("\n");
 //                                                                   = 0x0C ^ (DByte ^ IV[i]) 
 // 4) repeat for all pads 0x0D ... block_size 
 
+// 
+// CIPHER2:     C21 C22 C23 C24 C25 C26 C27     CIPHER1: C11 C12 C13 C14 C15 C16 C17
+// INTERM2:     I21 I22 I23 I24 I25 I26 I27     INTERM1: I11 I12 I13 I14 I15 I16 I17
+// XOR CIPHER1: C11 C12 C13 C14 C15 C16 C17     XOR IV:  IV1 IV2 IV3 IV4 IV5 IV6 IV7
+// PLAIN2:       XX  XX  XX  OB  OB  OB  OB     PLAIN1:   XX  XX  XX  XX  XX  XX  XX
+//
+// PLAIN2 XOR INTERM2 = CIPHER1                 PLAIN1 XOR INTERM1 = IV
+// => INTERM2 = CIPHER1 XOR PLAIN2              => INTERM1 = IV XOR PLAIN1
+// =>  PLAIN2 = CIPHER1 XOR INTERM2             =>  PLAIN1 = IV XOR INTERM1
 
-for (j = 0; j <= pad; j++)
-        plain[IV_index][block_size - j] = pad ^ ( cipher[IV_index][block_size - j] ^ cipher[IV_index-1][block_size - j]);
-IV_index++; // From now altering padding in C2 directly
+// Using IV = C1, to decrypt C2
+IV_index=1; // From now altering padding in C2 directly
+IV_index = 0;
+pad = 0;
+
+
 Oracle_Connect();
 
 int new_pad=pad;
-while (new_pad < block_size)
+unsigned char DByte = 0;
+
+while (new_pad < BLOCK_SIZE)
 {
+  //if (new_pad > pad) cipher[IV_index][BLOCK_SIZE - new_pad] = DByte ^ (new_pad) ^ (new_pad+1);
+  //else cipher[IV_index][BLOCK_SIZE - new_pad] = _cipher[IV_index][BLOCK_SIZE - new_pad] ^ pad ^ new_pad+1;
+
   new_pad++;
-  printf("\n\n  padding: ");
-  for (i = 0; i < block_size; i++)
+  for (i = 1; i <= pad; i++) // i: [1..11], BLOCK_SIZE-i: [15...5]
   {
-       if (i < block_size - new_pad) printf ("XX ");
+    cipher[IV_index][BLOCK_SIZE - i] = _cipher[IV_index][BLOCK_SIZE - i] ^ pad ^ new_pad;
+    // Katz: 9F  =  9E   ^ 0x06    ^   0x07
+    //                    old pad     new pad
+  }
+  
+  for (i = pad+1; i < new_pad; i++)
+    cipher[IV_index][BLOCK_SIZE - i] ^= (new_pad-1) ^(new_pad);
+
+  for (i = new_pad; i <= BLOCK_SIZE; i++) // i: [13..16], BLOCK_SIZE-i: [3...0]
+  {
+    cipher[IV_index][BLOCK_SIZE - i] = _cipher[IV_index][BLOCK_SIZE - i];
+    // Katz: 9F  =  9E   ^ 0x06    ^   0x07
+    //                    old pad     new pad
+  }
+
+ 
+  printf("\n\nC%d padding: ", IV_index+1);
+  for (i = 0; i < BLOCK_SIZE; i++)
+  {
+       if (i < BLOCK_SIZE - new_pad) printf ("XX ");
        else printf("%.2X ", new_pad);
   }
 
-   
-  for (i = 0; i <= pad; i++) 
-  {
-    cipher[IV_index][block_size - i] ^= pad ^ new_pad;
-    // 9F  =  9E ^ 0x06 ^ 0x07
-  }
 
-  for (i = 0; i <= 0xFF; i++)
+  for (i = 0; i <= 0xFF; i++) // guess loop
   {
-    cipher[IV_index][block_size - new_pad] = i;
+    cipher[IV_index][BLOCK_SIZE - new_pad] = i; // BLOCK_SIZE-new_pad: 16 - 12: 4
     if (verbose)
     {
-    	printf("\nnew IV is: ");
-    	for (j=0; j<block_size; j++)
+    	printf("\n new C%d is: ", IV_index);
+    	for (j=0; j<BLOCK_SIZE; j++)
     	{
           printf("%.2X ", cipher[IV_index][j]);
     	}
     }
 
-    ret = Oracle_Send((unsigned char*)cipher, 3);
+    ret = Oracle_Send((unsigned char*)cipher[IV_index], 2);
     if (verbose) printf(", ret = %d", ret);
-    if (ret == 1) break;
+    if (ret == 1) 
+    {
+      DByte = i;
+      break;
+    }
   }
 
   if (ret == 0)
   {
      printf("\nPadding oracle attack failed!\n");
-     return -1;
+     goto err;
   }
-  	plain[IV_index-1][block_size - new_pad] = new_pad ^ ( i ^ cipher[IV_index-1][block_size - new_pad]);
+ 
+  // I2 = C1´ ^  P2´
+  	interm[IV_index+1][BLOCK_SIZE - new_pad] = DByte ^ new_pad;
+  // P2 = C1 ^ I2
+     plain[IV_index+1][BLOCK_SIZE - new_pad] = _cipher[IV_index][BLOCK_SIZE - new_pad] ^ interm[IV_index+1][BLOCK_SIZE - new_pad];
 
-  printf("\ntext %d is: ", IV_index);
-  for (j=0; j<block_size; j++)
+  printf("\nplain %d is: ", IV_index+1);
+  for (j=0; j<BLOCK_SIZE; j++)
   {
-          printf("%.2X ", plain[IV_index-1][j]);
+          printf("%.2X ", plain[IV_index+1][j]);
   }
 
-  for (j=0; j<block_size; j++)
+  for (j=0; j<BLOCK_SIZE; j++)
   {
-          if (isprint(plain[IV_index-1][j]))
-		printf("%c", plain[IV_index-1][j]);
+          if (isprint(plain[IV_index+1][j]))
+		printf("%c", plain[IV_index+1][j]);
 	  else  printf(".");
   }
 }
+
+err:
   printf("\n");
 
   Oracle_Disconnect();
