@@ -144,7 +144,6 @@ IV_index=1; // From now altering padding in C2 directly
 IV_index = 0;
 pad = 0;
 
-
 Oracle_Connect();
 
 int new_pad=pad;
