@@ -5,6 +5,10 @@
 #include <ctype.h>
 #include <string.h>
 #include <signal.h> 
+#include <assert.h>
+#include <sys/stat.h>
+#include <errno.h>
+
 
 void keybreak(int sig){ // can be called asynchronously
   printf("\n");
@@ -22,18 +26,63 @@ void keybreak(int sig){ // can be called asynchronously
   #define CTEXT_LENGTH (48)
   #define BLOCKS_COUNT (CTEXT_LENGTH/BLOCK_SIZE)
 
-  unsigned char _cipher[BLOCKS_COUNT][BLOCK_SIZE] = {0};
   unsigned char cipher[BLOCKS_COUNT][BLOCK_SIZE] = {0};
+  unsigned char _cipher[BLOCKS_COUNT][BLOCK_SIZE] = {0};
   unsigned char interm[BLOCKS_COUNT][BLOCK_SIZE] = {0};
   unsigned char  plain[BLOCKS_COUNT][BLOCK_SIZE] = {0};
 
-int main(int argc, char *argv[]) {
-  unsigned char ctext[CTEXT_LENGTH]; // allocate space for 48 bytes, i.e., 3 blocks
-  int i, tmp, ret;
+
+off_t fsize(const char *filename) {
+    struct stat st;
+
+    if (stat(filename, &st) == 0)
+        return st.st_size;
+
+    fprintf(stderr, "Cannot determine size of %s: %s\n",
+            filename, strerror(errno));
+
+    return -1;
+}
+
+void dbldim_array_print(      unsigned char  *dbldim_array,
+                        const unsigned int     block_start,
+                        const unsigned int    blocks_count,
+                        const unsigned int     block_size)
+{
+    int i, j;
+    for (i=block_start; i<block_start+blocks_count; i++)
+      for (j=0; j<block_size; j++)
+        printf("%.2X ", dbldim_array[i*block_size+j]);
+    printf("\n");
+}
+
+void load_file(   const char   *filename,
+               unsigned char  **array,
+               unsigned long   *size)
+{
   FILE *fpIn;
+  unsigned int tmp;
+
+  *size = fsize(filename);
+  *array = malloc(*size);
+  fpIn = fopen(filename, "r");
+
+  for(unsigned long i=0; i<*size; i++) {
+    fscanf(fpIn, "%02x", &tmp);
+    (*array)[i] = (unsigned char)tmp;
+  }
+
+  fclose(fpIn);
+}
+
+int main(int argc, char *argv[]) {
+  unsigned long  ctext_length;
+  unsigned char *ctext = malloc(1); // allocate space for 48 bytes, i.e., 3 blocks
+
+
+
   int verbose = 0;
- // Register signals 
-  signal(SIGINT, keybreak); 
+
   if (argc < 2) {
     printf("Usage: %s <filename>\n",argv[0]);
     return -1;
@@ -41,32 +90,18 @@ int main(int argc, char *argv[]) {
   
   if ( argc>2 && (!strcmp(argv[2],"-v"))) verbose = 1;
 
-  fpIn = fopen(argv[1], "r");
+  load_file(argv[1], &ctext, &ctext_length);
+  
+  dbldim_array_print(ctext, 0, 1, BLOCK_SIZE);
+  dbldim_array_print(ctext, 1, 1, BLOCK_SIZE);
+  dbldim_array_print(ctext, 2, 1, BLOCK_SIZE);
 
-  for(i=0; i<CTEXT_LENGTH; i++) {
-    fscanf(fpIn, "%02x", &tmp);
-    ctext[i] = tmp;
-  }
 
-  fclose(fpIn);
+  exit(-1);
 
-  int j = -1;
-  int k = -1;
-
-  for (i=0, j=-1; i< CTEXT_LENGTH; i++)
-  {
-    
-    if (i%BLOCK_SIZE == 0) 
-    {
-	     printf("\nc%d: ",++j);
-    }
-
-    _cipher[j][i%BLOCK_SIZE]=ctext[i];
-    cipher[j][i%BLOCK_SIZE]=ctext[i];
-    printf("%.2X ",((unsigned char*)_cipher)[i]);
-  } 
-  printf("\n");
-
+   // Register signals to close Oracle whenever we want by Ctrl+C
+  signal(SIGINT, keybreak); 
+  int i, tmp, ret;
   Oracle_Connect();
   int IV_index = 0;
   int not_padded_bytes_pos = 0;
@@ -180,7 +215,7 @@ while (new_pad < BLOCK_SIZE)
        else printf("%.2X ", new_pad);
   }
 
-
+  int j;
   for (i = 0; i <= 0xFF; i++) // guess loop
   {
     cipher[IV_index][BLOCK_SIZE - new_pad] = i; // BLOCK_SIZE-new_pad: 16 - 12: 4
