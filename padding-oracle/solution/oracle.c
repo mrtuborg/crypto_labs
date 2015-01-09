@@ -5,6 +5,9 @@
 #include <unistd.h>
 #include <stdio.h>
 #include <string.h>
+#include <strings.h>
+
+#include <globals.h>
 
 #define NOFLAGS 0
 #define BLOCK_LENGTH 16
@@ -23,7 +26,7 @@ int Oracle_Connect() {
   servaddr.sin_port=htons(6667);
 
   if(!connect(sockfd, (struct sockaddr *)&servaddr, sizeof(servaddr))) {
-    printf("Connected to server successfully.\n");
+    DEBUG("\nConnected to server successfully.");
     return 0;
   } else {
     perror("Failed to connect to oracle");
@@ -33,7 +36,7 @@ int Oracle_Connect() {
 
 int Oracle_Disconnect() {
   if(!close(sockfd)) {
-    printf("Connection closed successfully.\n");
+    DEBUG("\nConnection closed successfully.");
     return 0;
   } else {
     perror("[WARNING]: You haven't connected to the server yet");
