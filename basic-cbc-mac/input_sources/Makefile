@@ -1,8 +1,8 @@
 sample: sample.o oracle.o
-        gcc -o sample sample.o oracle.o
+	gcc -o sample sample.o oracle.o
 
 vrfy:   vrfy.o cbcmac.o aes_core.o
-        gcc -0 vrfy vrfy.o cbcmac.o aes_core.o -lpthread
+	gcc -0 vrfy vrfy.o cbcmac.o aes_core.o -lpthread
 
 mac:    mac.o cbcmac.o aes_core.o
 	gcc -o mac mac.o cbcmac.o aes_core.o -lpthread
@@ -20,7 +20,7 @@ aes_core.o: aes_core.c
 	gcc -c aes_core.c
 
 sample.o: sample.c oracle.h
-        gcc -c -g sample.c
+	gcc -c -g sample.c
 
 oracle.o: oracle.c oracle.h
-       gcc -c oracle.c
+	gcc -c oracle.c
