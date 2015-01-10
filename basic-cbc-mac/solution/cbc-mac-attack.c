@@ -117,7 +117,7 @@ int main(int argc, char *argv[]) {
 	printf("%.2X ", tag_first[i]);
 	printf("\n");
 	
-	Mac(m_second, 64, tag_first);
+	//Mac(m_second, 64, tag_first);
 	ret = Vrfy(m_second, 64, tag_first);
     if (ret) {
         printf("\nMessage 2 verified successfully!\n");
